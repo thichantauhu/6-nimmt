@@ -4,7 +4,7 @@ import { WebSocketServer } from 'ws';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-const app=express(),server=createServer(app),wss=new WebSocketServer({server}),rooms=new Map(),PORT=process.env.PORT||10000;
+const app=express(),server=createServer(app),wss=new WebSocketServer({server}),rooms=new Map(),PORT=Number(globalThis.process?.env?.PORT)||10000;
 app.get('/',(_,res)=>res.type('html').send(fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8')));app.get('/health',(_,res)=>res.json({ok:true,rooms:rooms.size}));
 const id=()=>crypto.randomBytes(5).toString('hex');
 const points=n=>n===55?7:n%11===0?5:n%10===0?3:n%5===0?2:1;
