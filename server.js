@@ -2,42 +2,85 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 const rooms = new Map();
 const PORT = process.env.PORT || 10000;
+const client = fs.readFileSync(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
 
-const html = `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>6 nimmt! Online</title><style>
-*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Arial;background:#10131a;color:#f4f5f7}button,input{font:inherit}button{cursor:pointer;border:0;border-radius:10px;padding:10px 16px;font-weight:700;background:#f4c542;color:#111}button:disabled{opacity:.45;cursor:not-allowed}.wrap{max-width:1180px;margin:auto;padding:24px}.card{background:#181c25;border:1px solid #2a3040;border-radius:18px;padding:22px;box-shadow:0 10px 35px #0004}.center{min-height:100vh;display:grid;place-items:center}.home{max-width:520px;text-align:center}.home h1{font-size:46px;margin:0 0 8px}.home p{color:#aeb6c6}.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:16px 0}.input{background:#0f1218;color:#fff;border:1px solid #343b4c;border-radius:10px;padding:11px 14px;min-width:180px}.hidden{display:none}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.roomcode{font-size:22px;font-weight:900;letter-spacing:3px}.players{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.player{padding:7px 10px;border-radius:9px;background:#242a37}.player.me{outline:2px solid #f4c542}.board{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.pile{background:#202633;border-radius:14px;padding:10px;min-height:150px}.pile h3{font-size:13px;color:#9fa8ba;margin:0 0 8px}.pile .cards{display:flex;justify-content:center;min-height:100px;align-items:center}.hand{display:flex;flex-wrap:wrap;gap:9px;justify-content:center}.cardnum{width:72px;height:104px;border-radius:12px;background:#f8f8f4;color:#16181d;border:3px solid #d8d9d2;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;box-shadow:0 5px 12px #0005;transition:.15s}.cardnum:hover{transform:translateY(-5px)}.selected{outline:4px solid #f4c542;transform:translateY(-8px)}.taken{animation:pulse .5s}@keyframes pulse{50%{transform:scale(1.04)}}.msg{padding:11px;border-radius:10px;background:#252b38;margin:10px 0;color:#dce1eb}.danger{background:#64252b}.green{background:#214d36}.small{font-size:13px;color:#9fa8ba}.scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.score{background:#222835;padding:10px;border-radius:10px;display:flex;justify-content:space-between}.overlay{position:fixed;inset:0;background:#0009;display:grid;place-items:center;padding:20px}.modal{max-width:520px;width:100%;background:#181c25;border:1px solid #343b4c;border-radius:18px;padding:24px;text-align:center}.choice{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}.choice button{background:#303849;color:#fff}.choice button:hover{background:#465066}@media(max-width:750px){.board{grid-template-columns:repeat(2,1fr)}.cardnum{width:58px;height:88px;font-size:23px}}
-</style></head><body><div id="app"></div><script>
-let ws, state, me, selected=null, pendingResolve=null;
-const app=document.getElementById('app');
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function home(){app.innerHTML='<div class="center"><div class="card home"><h1>🐮 6 nimmt!</h1><p>Chơi online · 2–10 người · realtime</p><div class="row"><input id="name" class="input" placeholder="Tên của bạn" maxlength="18"><input id="code" class="input" placeholder="Mã phòng (nếu có)" maxlength="8"></div><div class="row"><button onclick="join(false)">TẠO PHÒNG</button><button onclick="join(true)">VÀO PHÒNG</button></div><p class="small">Luật chuẩn 6 nimmt!: mỗi người 10 lá, 4 hàng, lá thứ 6 lấy 5 lá đầu hàng.</p></div></div>'}
-function join(isJoin){const n=document.getElementById('name').value.trim()||'Người chơi';let c=document.getElementById('code').value.trim().toUpperCase(); if(isJoin&&!c)return alert('Nhập mã phòng'); ws=new WebSocket(location.origin.replace(/^http/,'ws'));ws.onopen=()=>ws.send(JSON.stringify({type:isJoin?'join':'create',name:n,code:c}));ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='error')return alert(m.message);if(m.type==='hello')me=m.id;if(m.type==='state'){state=m.state;render()}};ws.onclose=()=>{if(state)alert('Mất kết nối')};}
-function send(x){if(ws?.readyState===1)ws.send(JSON.stringify(x))}
-function render(){if(!state)return;let phase=state.phase;if(phase==='lobby'){app.innerHTML='<div class="wrap"><div class="card"><div class="top"><h2>🐮 6 nimmt!</h2><div>Mã phòng: <span class="roomcode">'+state.code+'</span> <button onclick="copyCode()">COPY</button></div></div><div class="msg">Gửi mã phòng cho bạn bè. Cần ít nhất 2 người.</div><div class="players">'+state.players.map(p=>'<span class="player '+(p.id===me?'me':'')+'">'+esc(p.name)+(p.host?' 👑':'')+'</span>').join('')+'</div>'+(state.host===me?'<button onclick="send({type:\'start\'})" '+(state.players.length<2?'disabled':'')+'>BẮT ĐẦU</button>':'<p class="small">Chờ chủ phòng bắt đầu…</p>')+'</div></div>';return}
-const p=state.players.find(x=>x.id===me);app.innerHTML='<div class="wrap"><div class="card"><div class="top"><div><h2>🐮 6 nimmt!</h2><span class="small">Phòng '+state.code+' · '+phase+'</span></div><div><button onclick="copyCode()">MỜI</button> <button onclick="location.reload()">RỜI</button></div></div><div class="players">'+state.players.map(x=>'<span class="player '+(x.id===me?'me':'')+'">'+esc(x.name)+' · '+x.score+' 🐮</span>').join('')+'</div><div class="msg '+(state.alert?'danger':'')+'">'+esc(state.message||'')+'</div><div class="board">'+state.rows.map((r,i)=>'<div class="pile"><h3>HÀNG '+(i+1)+' · '+r.length+' lá</h3><div class="cards">'+(r.length?r.map((n,j)=>'<div class="cardnum '+(j===r.length-1?'taken':'')+'" style="transform:scale(.72);margin:-9px">'+n+'</div>').join(''):'<span class="small">Trống</span>')+'</div></div>').join('')+'</div>'+(phase==='playing'?'<div><div class="top"><b>🃏 Bài của '+esc(p.name)+' ('+p.hand.length+' lá)</b><span class="small">'+(state.submitted?'Đã chọn — chờ mọi người':'Chọn 1 lá')+'</span></div><div class="hand">'+p.hand.map((n,i)=>'<button class="cardnum '+(selected===i?'selected':'')+'" '+(state.submitted?'disabled':'')+' onclick="pick('+i+')">'+n+'</button>').join('')+'</div></div>':'')+(phase==='finished'?'<button onclick="send({type:\'restart\'})">CHƠI VÁN MỚI</button>':'')+'<hr><h3>Điểm</h3><div class="scores">'+[...state.players].sort((a,b)=>a.score-b.score).map(x=>'<div class="score"><span>'+esc(x.name)+'</span><b>'+x.score+' 🐮</b></div>').join('')+'</div></div></div>';
-if(state.chooseRow?.player===me)showRowChoice();}
-function pick(i){if(state.submitted)return;selected=i;send({type:'play',card:state.players.find(p=>p.id===me).hand[i]});}
-function showRowChoice(){const o=document.createElement('div');o.className='overlay';o.innerHTML='<div class="modal"><h2>🐮 Bạn phải chọn 1 hàng</h2><p>Lá bạn đánh nhỏ hơn lá cuối của cả 4 hàng.</p><div class="choice">'+state.rows.map((r,i)=>'<button onclick="send({type:\'takeRow\',row:'+i+'});this.closest(\'.overlay\').remove()">Hàng '+(i+1)+' · '+r.length+' lá</button>').join('')+'</div></div>';document.body.appendChild(o)}
-function copyCode(){navigator.clipboard?.writeText(state.code);alert('Mã phòng: '+state.code)}
-home();
-</script></body></html>`;
+app.get('/', (_, res) => res.type('html').send(client));
+app.get('/health', (_, res) => res.json({ ok: true, rooms: rooms.size }));
 
-app.get('/',(_,res)=>res.type('html').send(html));
-app.get('/health',(_,res)=>res.json({ok:true,rooms:rooms.size}));
-function id(){return crypto.randomBytes(4).toString('hex')}
-function freshDeck(){const a=[];for(let n=1;n<=104;n++)a.push(n);for(let i=a.length-1;i;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
-function stateFor(room){return {code:room.code,host:room.host,phase:room.phase,players:[...room.players.values()].map(p=>({id:p.id,name:p.name,score:p.score,hand:p.hand,submitted:p.submitted,host:p.id===room.host})),rows:room.rows,message:room.message,alert:room.alert,chooseRow:room.chooseRow,turn:room.turn}}
-function broadcast(room){const s=JSON.stringify({type:'state',state:stateFor(room)});for(const p of room.players.values())if(p.ws.readyState===1)p.ws.send(s)}
-function start(room){room.deck=freshDeck();room.rows=[[room.deck.shift()],[room.deck.shift()],[room.deck.shift()],[room.deck.shift()]];for(const p of room.players.values()){p.hand=room.deck.splice(0,10).sort((a,b)=>a-b);p.score=0;p.submitted=null}room.phase='playing';room.message='Mỗi người chọn 1 lá. Khi tất cả đã chọn, các lá sẽ lật và xử lý từ nhỏ đến lớn.';room.alert=false;room.chooseRow=null;}
-function nextRound(room){for(const p of room.players.values()){p.submitted=null}if(room.deck.length<room.players.size){room.phase='finished';room.message='Hết bài. Ván kết thúc! Người có ít điểm nhất thắng.';return}for(const p of room.players.values())p.hand.push(room.deck.splice(0,1)[0]);for(const p of room.players.values())p.hand.sort((a,b)=>a-b);room.message='Chọn 1 lá.';room.alert=false}
-function resolve(room){const plays=[...room.players.values()].map(p=>({p,card:p.submitted})).sort((a,b)=>a.card-b.card);room.turn=plays.map(x=>x.p.id);room._pending=plays;processNext(room)}
-function processNext(room){if(!room._pending?.length){nextRound(room);broadcast(room);return}const x=room._pending.shift(), p=x.p, card=x.card;let best=-1;for(let i=0;i<4;i++){const r=room.rows[i];if(r[r.length-1]<card)best=i}p.hand.splice(p.hand.indexOf(card),1);if(best<0){room.chooseRow={player:p.id,card};room.message=p.name+' đánh '+card+' và phải chọn một hàng để lấy.';room.alert=true;broadcast(room);return}if(room.rows[best].length===5){const taken=room.rows[best].splice(0);p.score+=taken.reduce((s,n)=>s+points(n),0);room.rows[best].push(card);room.message=p.name+' đánh '+card+' → Hàng '+(best+1)+' đủ 5 lá, lấy cả hàng ('+taken.length+' lá).';room.alert=true}else{room.rows[best].push(card);room.message=p.name+' đánh '+card+' → Hàng '+(best+1)+'.';room.alert=false}broadcast(room);setTimeout(()=>processNext(room),700)}
-function points(n){return (n===55?7:(n%11===0?5:(n%10===0?3:(n%5===0?2:1))))}
-wss.on('connection',ws=>{let player=null,room=null;ws.on('message',raw=>{let m;try{m=JSON.parse(raw)}catch{return}if(m.type==='create'||m.type==='join'){if(room)return;if(m.type==='create'){const code=id().slice(0,6).toUpperCase();room={code,host:null,players:new Map(),phase:'lobby',rows:[],message:'',alert:false,deck:[]};rooms.set(code,room)}else{room=rooms.get(String(m.code||'').toUpperCase());if(!room)return ws.send(JSON.stringify({type:'error',message:'Không tìm thấy phòng'}));if(room.phase!=='lobby')return ws.send(JSON.stringify({type:'error',message:'Ván đã bắt đầu'}))}if(room.players.size>=10)return ws.send(JSON.stringify({type:'error',message:'Phòng đã đủ 10 người'}));player={id:id(),name:String(m.name||'Người chơi').slice(0,18),score:0,hand:[],submitted:null,ws};room.players.set(player.id,player);if(!room.host)room.host=player.id;ws.send(JSON.stringify({type:'hello',id:player.id}));broadcast(room);return}
-if(!room||!player)return;if(m.type==='start'&&room.host===player.id&&room.players.size>=2&&room.phase==='lobby'){start(room);broadcast(room);return}if(m.type==='play'&&room.phase==='playing'&&!player.submitted){const card=Number(m.card);if(player.hand.includes(card)){player.submitted=card;selected=null;room.message=room.players.size=== [...room.players.values()].filter(p=>p.submitted!==null).length?'Đang xử lý…':'Có người đã chọn. Chờ các người chơi còn lại…';if([...room.players.values()].every(p=>p.submitted!==null))setTimeout(()=>resolve(room),350);broadcast(room)}return}if(m.type==='takeRow'&&room.chooseRow?.player===player.id){const i=Number(m.row);if(i<0||i>3)return;const taken=room.rows[i].splice(0);player.score+=taken.reduce((s,n)=>s+points(n),0);room.rows[i].push(room.chooseRow.card);room.message=player.name+' chọn Hàng '+(i+1)+' và lấy '+taken.length+' lá.';room.alert=true;room.chooseRow=null;broadcast(room);setTimeout(()=>processNext(room),700);return}if(m.type==='restart'&&room.phase==='finished'&&room.host===player.id){start(room);broadcast(room)}});ws.on('close',()=>{if(room&&player){room.players.delete(player.id);if(room.host===player.id)room.host=room.players.keys().next().value;if(room.players.size===0)rooms.delete(room.code);else broadcast(room)}})});
+const newId = () => crypto.randomBytes(4).toString('hex');
+function deck(){ const a=[]; for(let n=1;n<=104;n++) a.push(n); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+function points(n){ return n===55?7:n%11===0?5:n%10===0?3:n%5===0?2:1; }
+function publicState(r){return {code:r.code,host:r.host,phase:r.phase,players:[...r.players.values()].map(p=>({id:p.id,name:p.name,score:p.score,hand:p.hand,submitted:p.submitted,host:p.id===r.host})),rows:r.rows,message:r.message,alert:r.alert,pending:r.pending};}
+function broadcast(r){const msg=JSON.stringify({type:'state',state:publicState(r)});for(const p of r.players.values())if(p.ws.readyState===1)p.ws.send(msg);}
+function start(r){
+ r.deck=deck(); r.rows=[r.deck.splice(0,1),r.deck.splice(0,1),r.deck.splice(0,1),r.deck.splice(0,1)];
+ for(const p of r.players.values()){p.hand=r.deck.splice(0,10).sort((a,b)=>a-b);p.score=0;p.submitted=null;}
+ r.phase='playing';r.pending=null;r.resolution=[];r.message='Chọn 1 lá. Khi tất cả đã chọn, các lá được lật và xử lý từ nhỏ đến lớn.';r.alert=false;
+}
+function nextRound(r){
+ r.pending=null;r.resolution=[];for(const p of r.players.values())p.submitted=null;
+ if(r.deck.length<r.players.size){r.phase='finished';r.message='Hết bài. Ván kết thúc! Người có ít điểm nhất thắng.';r.alert=false;broadcast(r);return;}
+ for(const p of r.players.values())p.hand.push(r.deck.shift());
+ for(const p of r.players.values())p.hand.sort((a,b)=>a-b);
+ r.message='Chọn 1 lá.';r.alert=false;broadcast(r);
+}
+function eligibleRows(r,card){const out=[];for(let i=0;i<4;i++){const last=r.rows[i][r.rows[i].length-1];if(last<card)out.push(i);}return out;}
+function beginResolution(r){r.resolution=[...r.players.values()].map(p=>({pid:p.id,card:p.submitted})).sort((a,b)=>a.card-b.card);processNext(r);}
+function processNext(r){
+ if(r.pending)return;
+ if(!r.resolution.length){nextRound(r);return;}
+ const x=r.resolution.shift();const p=r.players.get(x.pid);if(!p)return processNext(r);const card=x.card;
+ const choices=eligibleRows(r,card);
+ if(choices.length===0){r.pending={type:'forced',player:p.id,card,choices:[0,1,2,3]};r.message=p.name+' đánh '+card+' — lá này nhỏ hơn tất cả 4 hàng. Hãy chọn hàng để THU BÀI.';r.alert=true;broadcast(r);return;}
+ const row=choices.reduce((best,i)=>r.rows[i][r.rows[i].length-1]>r.rows[best][r.rows[best].length-1]?i:best,choices[0]);
+ if(r.rows[row].length===5){r.pending={type:'sixth',player:p.id,card,row,choices:[row]};r.message=p.name+' đánh '+card+' → LÁ THỨ 6 của Hàng '+(row+1)+'! Nhấn THU BÀI.';r.alert=true;broadcast(r);return;}
+ p.hand.splice(p.hand.indexOf(card),1);r.rows[row].push(card);r.message=p.name+' đánh '+card+' → Hàng '+(row+1)+'.';r.alert=false;broadcast(r);setTimeout(()=>processNext(r),450);
+}
+function collect(r,p,row){
+ if(!r.pending||r.pending.player!==p.id)return false;
+ if(r.pending.type==='sixth'&&row!==r.pending.row)return false;
+ if(r.pending.type==='forced'&&(row<0||row>3))return false;
+ const card=r.pending.card;const taken=r.rows[row].splice(0);p.hand.splice(p.hand.indexOf(card),1);p.score+=taken.reduce((s,n)=>s+points(n),0);r.rows[row].push(card);
+ r.message=p.name+' thu Hàng '+(row+1)+': '+taken.join(' · ')+' = '+taken.reduce((s,n)=>s+points(n),0)+' 🐮. Lá '+card+' là lá đầu tiên của hàng.';
+ r.alert=true;r.pending=null;broadcast(r);setTimeout(()=>processNext(r),450);return true;
+}
+
+wss.on('connection',ws=>{
+ let room=null, player=null;
+ ws.on('message',raw=>{
+  let m;try{m=JSON.parse(raw)}catch{return;}
+  if(m.type==='create'||m.type==='join'){
+   if(room)return;
+   if(m.type==='create'){
+    let code;do{code=newId().slice(0,6).toUpperCase();}while(rooms.has(code));
+    room={code,host:null,players:new Map(),phase:'lobby',rows:[],deck:[],resolution:[],pending:null,message:'',alert:false};rooms.set(code,room);
+   } else {
+    room=rooms.get(String(m.code||'').toUpperCase());
+    if(!room)return ws.send(JSON.stringify({type:'error',message:'Không tìm thấy phòng.'}));
+    if(room.phase!=='lobby')return ws.send(JSON.stringify({type:'error',message:'Ván đã bắt đầu, không thể vào.'}));
+   }
+   if(room.players.size>=10)return ws.send(JSON.stringify({type:'error',message:'Phòng đã đủ 10 người.'}));
+   player={id:newId(),name:String(m.name||'Người chơi').slice(0,18),score:0,hand:[],submitted:null,ws};room.players.set(player.id,player);if(!room.host)room.host=player.id;
+   ws.send(JSON.stringify({type:'hello',id:player.id}));broadcast(room);return;
+  }
+  if(!room||!player)return;
+  if(m.type==='start'&&room.host===player.id&&room.players.size>=2&&room.phase==='lobby'){start(room);broadcast(room);return;}
+  if(m.type==='play'&&room.phase==='playing'&&room.pending===null&&player.submitted===null){
+   const card=Number(m.card);if(!Number.isInteger(card)||!player.hand.includes(card))return;
+   player.submitted=card;const all=[...room.players.values()].every(p=>p.submitted!==null);room.message=all?'Đang xử lý…':'Đã chọn. Chờ người chơi còn lại…';broadcast(room);if(all)setTimeout(()=>beginResolution(room),300);return;
+  }
+  if(m.type==='collect'&&room.phase==='playing'){const row=Number(m.row);if(collect(room,player,row))return;}
+  if(m.type==='restart'&&room.phase==='finished'&&room.host===player.id){start(room);broadcast(room);return;}
+ });
+ ws.on('close',()=>{if(!room||!player)return;room.players.delete(player.id);if(room.host===player.id)room.host=room.players.keys().next().value;if(room.players.size===0){rooms.delete(room.code);return;}if(room.pending?.player===player.id)room.pending=null;broadcast(room);});
+});
+
 server.listen(PORT,()=>console.log('6-nimmt online listening on '+PORT));
