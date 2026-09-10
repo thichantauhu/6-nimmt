@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 const app=express(),server=createServer(app),wss=new WebSocketServer({server}),rooms=new Map(),PORT=Number(globalThis.process?.env?.PORT)||10000;
-app.get('/',(_,res)=>res.type('html').send(fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8')));app.get('/health',(_,res)=>res.json({ok:true,rooms:rooms.size}));
+app.get('/',(_,res)=>res.type('html').send(fs.readFileSync(path.join(globalThis.process.cwd(),'public','index.html'),'utf8')));app.get('/health',(_,res)=>res.json({ok:true,rooms:rooms.size}));
 const id=()=>crypto.randomBytes(5).toString('hex');
 const points=n=>n===55?7:n%11===0?5:n%10===0?3:n%5===0?2:1;
 const deck=()=>{let a=Array.from({length:104},(_,i)=>i+1);for(let i=a.length-1;i;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
